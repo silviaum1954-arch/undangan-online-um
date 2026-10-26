@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Check,
   CheckCircle2,
@@ -223,6 +223,8 @@ export function RsvpSection({ data, guestSlug }: { data: PublicEvent; guestSlug:
 
 /* ---------------------------------------------------------------- Ucapan */
 
+type ListWish = PublicWish & { pending?: boolean };
+
 export function WishSection({
   data,
   guestSlug,
@@ -233,7 +235,25 @@ export function WishSection({
   now: number;
 }) {
   const supabase = useMemo(() => createClient(), []);
-  const [wishes, setWishes] = useState<PublicWish[]>(data.wishes);
+  const [wishes, setWishes] = useState<ListWish[]>(data.wishes);
+  const storeKey = `undangkuy:wishes:${data.event.slug}`;
+
+  // Wishes waiting for approval aren't public yet; keep this visitor's own
+  // visible to them (this device only) until the owner approves them.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const mine = JSON.parse(localStorage.getItem(storeKey) ?? "[]") as PublicWish[];
+        const live = new Set(data.wishes.map((w) => `${w.sender}\n${w.message}`));
+        const pending = mine.filter((w) => !live.has(`${w.sender}\n${w.message}`));
+        localStorage.setItem(storeKey, JSON.stringify(pending));
+        if (pending.length) setWishes([...pending.map((w) => ({ ...w, pending: true })), ...data.wishes]);
+      } catch {
+        /* storage unavailable */
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [data.wishes, storeKey]);
   const [sender, setSender] = useState(data.guest?.name ?? "");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -264,7 +284,20 @@ export function WishSection({
       ]);
       setNotice("Terima kasih, ucapan Anda sudah tampil.");
     } else {
-      setNotice("Terima kasih! Ucapan Anda akan tampil setelah disetujui penyelenggara.");
+      const mine: PublicWish = {
+        id: crypto.randomUUID(),
+        sender: sender.trim(),
+        message: message.trim(),
+        created_at: new Date().toISOString(),
+      };
+      setWishes((p) => [{ ...mine, pending: true }, ...p]);
+      try {
+        const prev = JSON.parse(localStorage.getItem(storeKey) ?? "[]") as PublicWish[];
+        localStorage.setItem(storeKey, JSON.stringify([mine, ...prev].slice(0, 20)));
+      } catch {
+        /* storage unavailable */
+      }
+      setNotice("Terima kasih! Ucapan Anda tersimpan dan akan tampil untuk semua tamu setelah disetujui penyelenggara.");
     }
     setMessage("");
   }
@@ -347,6 +380,11 @@ export function WishSection({
                       {now ? timeAgo(w.created_at, now) : formatDateShort(w.created_at)}
                     </span>
                   </div>
+                  {w.pending && (
+                    <span className="mt-1 inline-block rounded-full bg-(--inv-tint) px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-(--inv-accent)">
+                      Menunggu persetujuan
+                    </span>
+                  )}
                   <p className="mt-1 whitespace-pre-wrap break-words text-[14px] leading-relaxed">
                     {w.message}
                   </p>

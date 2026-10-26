@@ -6,6 +6,7 @@ import { Calendar, Check, SlidersHorizontal, User, type LucideIcon } from "lucid
 import EventShell from "../shell";
 import { createClient } from "@/lib/supabase/client";
 import { uniqueSlug } from "@/lib/format";
+import { removeEventFiles } from "@/lib/supabase/event-files";
 import type { ShellEvent } from "@/lib/data/events";
 import AcaraTab from "./acara-tab";
 import { AkunTab, PreferensiTab } from "./other-tabs";
@@ -163,6 +164,7 @@ export default function PengaturanAcaraPage({
   async function remove() {
     const { error } = await supabase.from("events").delete().eq("id", event.id);
     if (error) return showToast(`Gagal menghapus: ${error.message}`);
+    await removeEventFiles(supabase, event.id);
     router.replace("/beranda");
     router.refresh();
   }

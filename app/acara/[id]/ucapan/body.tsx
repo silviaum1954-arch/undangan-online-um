@@ -65,6 +65,7 @@ export default function ModerasiUcapanPage({
     initialSettings.charLimit === null ? "unlimited" : String(initialSettings.charLimit),
   );
   const [savingSettings, setSavingSettings] = useState(false);
+  const needsApproval = manualApproval || !autoPublish;
 
   function showToast(msg: string) {
     setToast(msg);
@@ -379,8 +380,14 @@ export default function ModerasiUcapanPage({
                               w.tag ? <span className="text-xs text-ink-mute">· {w.tag}</span> : null
                             )}
                             {hidden && !w.isSpam && (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                                Disembunyikan
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                  needsApproval
+                                    ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+                                    : "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {needsApproval ? "Menunggu persetujuan" : "Disembunyikan"}
                               </span>
                             )}
                           </div>
@@ -425,7 +432,7 @@ export default function ModerasiUcapanPage({
                             ) : (
                               <EyeOff className="size-3.5" />
                             )}
-                            {hidden ? "Tampilkan" : "Sembunyikan"}
+                            {hidden ? (needsApproval && !w.isSpam ? "Setujui" : "Tampilkan") : "Sembunyikan"}
                           </button>
                           <button
                             type="button"

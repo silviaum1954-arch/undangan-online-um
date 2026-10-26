@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import Notifications from "../notifications";
+import { removeEventFiles } from "@/lib/supabase/event-files";
 import { uniqueSlug } from "@/lib/format";
 import { toEventItem, type EventItem, type EventStatus } from "@/lib/data/events";
 import EventCard from "./event-card";
@@ -175,6 +176,7 @@ export default function BerandaClient({
     if (!confirm(`Hapus undangan "${e.title}"? Semua tamu, ucapan, dan data angpaonya ikut terhapus.`)) return;
     const { error } = await supabase.from("events").delete().eq("id", e.id);
     if (error) return showToast(`Gagal menghapus: ${error.message}`);
+    await removeEventFiles(supabase, e.id);
     setEvents((p) => p.filter((x) => x.id !== e.id));
     showToast(`"${e.title}" dihapus.`);
   }
