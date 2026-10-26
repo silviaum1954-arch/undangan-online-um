@@ -14,7 +14,8 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { STATUS_META, type EventItem } from "./data";
+import type { EventItem } from "@/lib/data/events";
+import { STATUS_META } from "./data";
 
 interface Props {
   event: EventItem;
@@ -43,7 +44,7 @@ export default function EventCard({
   onDelete,
 }: Props) {
   const meta = STATUS_META[evt.status];
-  const dark = evt.theme.isDark;
+  const dark = evt.theme.dark;
   const isDraft = evt.status === "draf";
   const pct = evt.target ? Math.round((evt.confirmed / evt.target) * 100) : 0;
   const href = `/acara/${evt.slug}`;
@@ -52,7 +53,7 @@ export default function EventCard({
     <article className="group flex flex-col rounded-2xl border border-line bg-white transition hover:border-brand-200 hover:shadow-[0_12px_32px_-12px_rgba(42,27,69,0.18)]">
       {/* Cover */}
       <div
-        className={`relative h-28 rounded-t-2xl bg-linear-to-br ${evt.theme.cover}`}
+        className={`relative h-28 rounded-t-2xl bg-linear-to-br ${evt.theme.hero}`}
       >
         <div
           aria-hidden
@@ -160,7 +161,7 @@ export default function EventCard({
               <Link2 className="size-3.5 shrink-0 text-ink-mute" />
             )}
             <dd className="truncate">
-              {isDraft ? "Belum dipublikasikan" : evt.url}
+              {isDraft ? "Belum dipublikasikan" : `/e/${evt.slug}`}
             </dd>
           </div>
         </dl>

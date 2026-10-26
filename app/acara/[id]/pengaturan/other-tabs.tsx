@@ -3,51 +3,69 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import Switch from "../switch";
-import { Label, Section, btnPrimary, field } from "./ui";
+import { Label, Section, btnPrimary, field } from "../ui";
+import type { Prefs, ProfileData } from "./data";
 
-export function AkunTab({ onSave }: { onSave: () => void }) {
+export function AkunTab({
+  profile,
+  onSave,
+}: {
+  profile: ProfileData;
+  onSave: (v: { fullName: string; phone: string }) => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState(profile.fullName);
+  const [phone, setPhone] = useState(profile.phone);
+  const [saving, setSaving] = useState(false);
+
   return (
     <Section title="Profil pemilik acara" desc="Informasi akun Anda di UndangKuy.">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          onSave();
+          setSaving(true);
+          await onSave({ fullName: fullName.trim(), phone: phone.trim() });
+          setSaving(false);
         }}
       >
         <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="acc-name">Nama lengkap</Label>
-            <input id="acc-name" defaultValue="Shilvia Anisa" className={field} />
+            <input
+              id="acc-name"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className={field}
+            />
           </div>
           <div>
             <Label htmlFor="acc-email">Email</Label>
             <input
               id="acc-email"
               type="email"
-              defaultValue="shilvia@gmail.com"
-              className={field}
+              value={profile.email}
+              readOnly
+              aria-describedby="acc-email-hint"
+              className={`${field} bg-brand-50/50 text-ink-soft`}
             />
+            <p id="acc-email-hint" className="mt-1 text-xs text-ink-mute">
+              Email dipakai untuk masuk dan tidak bisa diubah di sini.
+            </p>
           </div>
           <div>
             <Label htmlFor="acc-phone">Nomor WhatsApp</Label>
             <input
               id="acc-phone"
               type="tel"
-              defaultValue="+62 812-3456-7890"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
               className={field}
             />
           </div>
-          <div>
-            <span className="mb-1.5 block text-[13px] font-semibold">Paket</span>
-            <div className="flex h-11 items-center justify-between rounded-xl bg-brand-50 px-3.5 text-sm">
-              <span className="font-semibold text-brand-700">UndangKuy Premium</span>
-              <span className="text-xs font-medium text-emerald-700">Aktif</span>
-            </div>
-          </div>
         </div>
         <div className="mt-6 flex justify-end border-t border-line pt-5">
-          <button type="submit" className={btnPrimary}>
-            Simpan akun
+          <button type="submit" disabled={saving} className={`${btnPrimary} disabled:opacity-70`}>
+            {saving ? "Menyimpan…" : "Simpan akun"}
           </button>
         </div>
       </form>
@@ -55,31 +73,39 @@ export function AkunTab({ onSave }: { onSave: () => void }) {
   );
 }
 
-export function PreferensiTab({ onSave }: { onSave: () => void }) {
-  const [weekly, setWeekly] = useState(true);
-  const [newWish, setNewWish] = useState(true);
+export function PreferensiTab({
+  prefs,
+  onSave,
+}: {
+  prefs: Prefs;
+  onSave: (p: Prefs) => Promise<void>;
+}) {
+  const [p, setP] = useState<Prefs>(prefs);
+  const [saving, setSaving] = useState(false);
 
   const switches = [
     {
       label: "Ringkasan RSVP mingguan",
       desc: "Rekap kehadiran dikirim ke email setiap minggu.",
-      checked: weekly,
-      set: setWeekly,
+      checked: p.weekly,
+      set: (v: boolean) => setP({ ...p, weekly: v }),
     },
     {
       label: "Ucapan baru",
       desc: "Beri tahu saya saat ada ucapan masuk.",
-      checked: newWish,
-      set: setNewWish,
+      checked: p.newWish,
+      set: (v: boolean) => setP({ ...p, newWish: v }),
     },
   ];
 
   return (
     <Section title="Bahasa & notifikasi" desc="Atur bahasa, zona waktu, dan saluran notifikasi.">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          onSave();
+          setSaving(true);
+          await onSave(p);
+          setSaving(false);
         }}
         className="max-w-xl"
       >
@@ -89,6 +115,8 @@ export function PreferensiTab({ onSave }: { onSave: () => void }) {
             <div className="relative">
               <select
                 id="pref-lang"
+                value={p.lang}
+                onChange={(e) => setP({ ...p, lang: e.target.value })}
                 className={`${field} cursor-pointer appearance-none pr-9`}
               >
                 <option>Bahasa Indonesia</option>
@@ -100,7 +128,12 @@ export function PreferensiTab({ onSave }: { onSave: () => void }) {
           <div>
             <Label htmlFor="pref-tz">Zona waktu acara</Label>
             <div className="relative">
-              <select id="pref-tz" className={`${field} cursor-pointer appearance-none pr-9`}>
+              <select
+                id="pref-tz"
+                value={p.tz}
+                onChange={(e) => setP({ ...p, tz: e.target.value })}
+                className={`${field} cursor-pointer appearance-none pr-9`}
+              >
                 <option>WIB (GMT+07:00)</option>
                 <option>WITA (GMT+08:00)</option>
                 <option>WIT (GMT+09:00)</option>
@@ -123,8 +156,8 @@ export function PreferensiTab({ onSave }: { onSave: () => void }) {
         </ul>
 
         <div className="mt-2 flex justify-end border-t border-line pt-5">
-          <button type="submit" className={btnPrimary}>
-            Simpan preferensi
+          <button type="submit" disabled={saving} className={`${btnPrimary} disabled:opacity-70`}>
+            {saving ? "Menyimpan…" : "Simpan preferensi"}
           </button>
         </div>
       </form>

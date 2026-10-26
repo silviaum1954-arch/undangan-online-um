@@ -17,16 +17,14 @@ import { useState } from "react";
 import Switch from "../switch";
 import {
   CLOSE_TIMINGS,
-  EVENT_TITLE,
   PUBLIC_HOST,
   STATUS_ACTIONS,
   STATUS_ORDER,
   STATUS_STEPS,
-  USED_QUOTA,
   type EventStatus,
   type Settings,
 } from "./data";
-import { Label, Section, Stepper, btnOutline, field } from "./ui";
+import { Label, Section, Stepper, btnOutline, field } from "../ui";
 
 const STEP_ICONS: Record<EventStatus, LucideIcon> = {
   draf: FileText,
@@ -41,6 +39,9 @@ interface Props {
   status: EventStatus;
   onStatus: (s: EventStatus) => void;
   onToast: (m: string) => void;
+  eventTitle: string;
+  usedQuota: number;
+  ogImageUrl: string | null;
   onImage: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -52,14 +53,17 @@ export default function AcaraTab({
   status,
   onStatus,
   onToast,
+  eventTitle,
+  usedQuota,
+  ogImageUrl,
   onImage,
   onDuplicate,
   onDelete,
 }: Props) {
   const [confirmText, setConfirmText] = useState("");
-  const link = `https://${PUBLIC_HOST}/${form.slug}`;
+  const path = `/e/${form.slug}`;
   const current = STATUS_ORDER.indexOf(status);
-  const quotaPct = Math.min(100, Math.round((USED_QUOTA / form.totalQuota) * 100));
+  const quotaPct = Math.min(100, Math.round((usedQuota / form.totalQuota) * 100));
   const slugInvalid = form.slug.length < 3;
 
   return (
@@ -83,7 +87,7 @@ export default function AcaraTab({
                 : "border-line focus-within:border-brand-500 focus-within:ring-brand-100"
             }`}
           >
-            <span className="select-none text-ink-mute">{PUBLIC_HOST}/</span>
+            <span className="select-none text-ink-mute">/e/</span>
             <input
               aria-label="Slug tautan"
               value={form.slug}
@@ -96,7 +100,7 @@ export default function AcaraTab({
           <button
             type="button"
             onClick={() => {
-              navigator.clipboard?.writeText(link);
+              navigator.clipboard?.writeText(`${window.location.origin}${path}`);
               onToast("Tautan publik disalin.");
             }}
             className={btnOutline}
@@ -269,12 +273,17 @@ export default function AcaraTab({
                 Gambar cuplikan
               </span>
               <div className="flex items-center gap-3 rounded-xl border border-line p-2.5">
-                <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-rose-100 text-xs font-bold text-rose-600">
-                  21st
-                </span>
+                {ogImageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={ogImageUrl} alt="" className="size-11 shrink-0 rounded-lg object-cover" />
+                ) : (
+                  <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600">
+                    OG
+                  </span>
+                )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold">{form.ogImageName}</p>
-                  <p className="text-xs text-ink-mute">1200 × 630 px · 840 KB</p>
+                  <p className="truncate text-[13px] font-semibold">{form.ogImagePath ? form.ogImagePath.split("/").pop() : "Belum ada gambar"}</p>
+                  <p className="text-xs text-ink-mute">Disarankan 1200 × 630 px</p>
                 </div>
                 <button
                   type="button"
@@ -307,7 +316,7 @@ export default function AcaraTab({
                   </p>
                 </div>
                 <p className="truncate px-1.5 pb-1 text-[10px] text-sky-600 underline">
-                  {link}
+                  {path}
                 </p>
               </div>
             </div>
@@ -328,12 +337,12 @@ export default function AcaraTab({
               <Stepper
                 label="kuota"
                 value={form.totalQuota}
-                min={USED_QUOTA}
+                min={usedQuota}
                 onChange={(n) => update({ totalQuota: n })}
               />
               <p className="text-right text-xs text-ink-soft">
-                <span className="font-bold text-ink">{USED_QUOTA}</span> terpakai ·
-                sisa {form.totalQuota - USED_QUOTA}
+                <span className="font-bold text-ink">{usedQuota}</span> terpakai ·
+                sisa {form.totalQuota - usedQuota}
               </p>
             </div>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-brand-50">
@@ -394,14 +403,14 @@ export default function AcaraTab({
         <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
           <input
             aria-label="Ketik nama acara untuk konfirmasi"
-            placeholder={`Ketik "${EVENT_TITLE}"`}
+            placeholder={`Ketik "${eventTitle}"`}
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             className={`${field} focus:border-rose-400 focus:ring-rose-100`}
           />
           <button
             type="button"
-            disabled={confirmText !== EVENT_TITLE}
+            disabled={confirmText !== eventTitle}
             onClick={onDelete}
             className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 text-[13px] font-bold text-white transition hover:bg-rose-700 disabled:opacity-40 disabled:hover:bg-rose-600"
           >

@@ -15,11 +15,15 @@ import {
   Wallet,
 } from "lucide-react";
 import EventShell from "../shell";
-import { EVENT } from "../event";
+import { createClient } from "@/lib/supabase/client";
+import { useCurrentUser } from "@/lib/supabase/use-user";
+import type { ShellEvent } from "@/lib/data/events";
 import Switch from "../switch";
 import {
-  INITIAL_ACCOUNTS,
-  INITIAL_TRANSFERS,
+  toAccount,
+  toDbType,
+  toTransfer,
+  type GiftSettings,
   MAX_ACCOUNTS,
   initials,
   logoFor,
@@ -29,8 +33,8 @@ import {
 } from "./data";
 import {
   AccountModal,
-  QrisCode,
   QrisModal,
+  TransferFormModal,
   TransferModal,
   type AccountValues,
 } from "./modals";
@@ -40,15 +44,38 @@ const cardTitle = "text-[15px] font-bold";
 const iconBtn =
   "grid size-8 place-items-center rounded-lg text-ink-mute transition hover:bg-brand-50 hover:text-brand-700";
 
-export default function AngpaoDigitalPage({ slug }: { slug: string }) {
-  const [sectionActive, setSectionActive] = useState(true);
-  const [accounts, setAccounts] = useState<Account[]>(INITIAL_ACCOUNTS);
-  const [transfers] = useState<Transfer[]>(INITIAL_TRANSFERS);
-  const [hasQris, setHasQris] = useState(true);
+export default function AngpaoDigitalPage({
+  slug,
+  shell,
+  eventId,
+  initialAccounts,
+  initialTransfers,
+  initialSettings,
+  initialQrisPath,
+}: {
+  slug: string;
+  shell: ShellEvent;
+  eventId: string;
+  initialAccounts: Account[];
+  initialTransfers: Transfer[];
+  initialSettings: GiftSettings;
+  initialQrisPath: string | null;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const user = useCurrentUser();
+  const [sectionActive, setSectionActive] = useState(initialSettings.enabled);
+  const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
+  const [transfers, setTransfers] = useState<Transfer[]>(initialTransfers);
+  const [qrisPath, setQrisPath] = useState<string | null>(initialQrisPath);
+  const hasQris = qrisPath !== null;
+  const qrisUrl = qrisPath
+    ? supabase.storage.from("event-media").getPublicUrl(qrisPath).data.publicUrl
+    : null;
+  const [transferOpen, setTransferOpen] = useState(false);
 
-  const [personalOnly, setPersonalOnly] = useState(true);
-  const [transferForm, setTransferForm] = useState(true);
-  const [emailNotif, setEmailNotif] = useState(false);
+  const [personalOnly, setPersonalOnly] = useState(initialSettings.personalOnly);
+  const [transferForm, setTransferForm] = useState(initialSettings.transferForm);
+  const [emailNotif, setEmailNotif] = useState(initialSettings.emailNotify);
 
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -79,10 +106,13 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
     showToast(`Nomor ${a.bankName} disalin.`);
   }
 
-  function toggleAccount(a: Account) {
-    setAccounts((p) =>
-      p.map((x) => (x.id === a.id ? { ...x, isActive: !x.isActive } : x)),
-    );
+  async function toggleAccount(a: Account) {
+    const { error } = await supabase
+      .from("payment_accounts")
+      .update({ is_active: !a.isActive })
+      .eq("id", a.id);
+    if (error) return showToast(`Gagal memperbarui: ${error.message}`);
+    setAccounts((p) => p.map((x) => (x.id === a.id ? { ...x, isActive: !x.isActive } : x)));
     showToast(
       a.isActive
         ? `${a.bankName} disembunyikan dari undangan.`
@@ -90,33 +120,142 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
     );
   }
 
-  function removeAccount(a: Account) {
+  async function removeAccount(a: Account) {
     if (!confirm(`Hapus rekening ${a.bankName}?`)) return;
-    setAccounts((p) => p.filter((x) => x.id !== a.id));
+    const { error } = await supabase.from("payment_accounts").delete().eq("id", a.id);
+    if (error) return showToast(`Gagal menghapus: ${error.message}`);
+    const rest = accounts.filter((x) => x.id !== a.id);
+    // keep exactly one primary account when any remain
+    if (a.isPrimary && rest.length > 0) {
+      const { error: e2 } = await supabase
+        .from("payment_accounts")
+        .update({ is_primary: true })
+        .eq("id", rest[0].id);
+      if (!e2) rest[0] = { ...rest[0], isPrimary: true };
+    }
+    setAccounts(rest);
     showToast(`Rekening ${a.bankName} dihapus.`);
   }
 
-  function saveAccount(v: AccountValues) {
+  async function saveAccount(v: AccountValues) {
+    const fields = {
+      bank_name: v.bankName,
+      type: toDbType(v.type),
+      account_number: v.accountNumber,
+      account_holder: v.accountHolder,
+    };
     if (editing) {
-      setAccounts((p) => p.map((x) => (x.id === editing.id ? { ...x, ...v } : x)));
+      const { data, error } = await supabase
+        .from("payment_accounts")
+        .update(fields)
+        .eq("id", editing.id)
+        .select()
+        .single();
+      if (error) return showToast(`Gagal menyimpan: ${error.message}`);
+      setAccounts((p) => p.map((x) => (x.id === editing.id ? toAccount(data) : x)));
       showToast(`Rekening ${v.bankName} diperbarui.`);
     } else {
-      setAccounts((p) => [
-        ...p,
-        { id: `acc-${crypto.randomUUID()}`, ...v, isActive: true },
-      ]);
+      const { data, error } = await supabase
+        .from("payment_accounts")
+        .insert({
+          ...fields,
+          event_id: eventId,
+          is_primary: accounts.length === 0,
+          sort_order: accounts.length,
+        })
+        .select()
+        .single();
+      if (error) return showToast(`Gagal menambah rekening: ${error.message}`);
+      setAccounts((p) => [...p, toAccount(data)]);
       showToast(`Rekening ${v.bankName} ditambahkan.`);
     }
     setAccountOpen(false);
     setEditing(null);
   }
 
-  function saveAll() {
+  async function saveAll() {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      showToast("Pengaturan angpao disimpan.");
-    }, 700);
+    const { error } = await supabase
+      .from("events")
+      .update({
+        gift_personal_only: personalOnly,
+        gift_transfer_form: transferForm,
+        gift_email_notify: emailNotif,
+      })
+      .eq("id", eventId);
+    setSaving(false);
+    showToast(error ? `Gagal menyimpan: ${error.message}` : "Pengaturan angpao disimpan.");
+  }
+
+  async function toggleSection(v: boolean) {
+    const { error } = await supabase.from("events").update({ gift_enabled: v }).eq("id", eventId);
+    if (error) return showToast(`Gagal menyimpan: ${error.message}`);
+    setSectionActive(v);
+    showToast(
+      v ? "Bagian angpao tampil di undangan." : "Bagian angpao disembunyikan dari undangan.",
+    );
+  }
+
+  async function uploadQris(file: File) {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return false;
+    const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+    const path = `${auth.user.id}/${eventId}/qris-${Date.now()}.${ext}`;
+    const up = await supabase.storage.from("event-media").upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (up.error) return false;
+    const { error } = await supabase.from("events").update({ qris_path: path }).eq("id", eventId);
+    if (error) return false;
+    if (qrisPath) await supabase.storage.from("event-media").remove([qrisPath]);
+    setQrisPath(path);
+    setQrisOpen(false);
+    showToast("Kode QRIS diperbarui.");
+    return true;
+  }
+
+  function exportCsv() {
+    if (transfers.length === 0) return showToast("Belum ada transfer untuk diekspor.");
+    const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+    const rows = [
+      "Pengirim,Tujuan,Nominal,Waktu",
+      ...transfers.map((t) => [esc(t.sender), esc(t.destination), t.amount, esc(t.time)].join(",")),
+    ];
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `konfirmasi-transfer-${slug}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`${transfers.length} konfirmasi diekspor ke CSV.`);
+  }
+
+  async function removeQris() {
+    if (!qrisPath) return;
+    const { error } = await supabase.from("events").update({ qris_path: null }).eq("id", eventId);
+    if (error) return showToast(`Gagal menghapus: ${error.message}`);
+    await supabase.storage.from("event-media").remove([qrisPath]);
+    setQrisPath(null);
+    showToast("Kode QRIS dihapus.");
+  }
+
+  async function addTransfer(v: { sender: string; amount: number; destination: string }) {
+    const { data, error } = await supabase
+      .from("gift_confirmations")
+      .insert({
+        event_id: eventId,
+        sender_name: v.sender,
+        amount: v.amount,
+        destination: v.destination,
+      })
+      .select()
+      .single();
+    if (error) return showToast(`Gagal mencatat transfer: ${error.message}`);
+    setTransfers((p) => [toTransfer(data), ...p]);
+    setTransferOpen(false);
+    showToast("Transfer dicatat.");
   }
 
   const privacy = [
@@ -134,7 +273,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
     },
     {
       label: "Notifikasi email",
-      desc: "Kirim email ke shilvia@gmail.com setiap ada konfirmasi baru.",
+      desc: `Kirim email ke ${user?.email ?? "email akun Anda"} setiap ada konfirmasi baru.`,
       checked: emailNotif,
       set: setEmailNotif,
     },
@@ -155,8 +294,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
       <EventShell
         slug={slug}
         active="angpao"
-        eventName={EVENT.name}
-        eventDate={EVENT.date}
+        event={shell}
         wide
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -186,14 +324,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
             </div>
             <Switch
               checked={sectionActive}
-              onChange={(v) => {
-                setSectionActive(v);
-                showToast(
-                  v
-                    ? "Bagian angpao tampil di undangan."
-                    : "Bagian angpao disembunyikan dari undangan.",
-                );
-              }}
+              onChange={toggleSection}
               label="Tampilkan bagian angpao di undangan"
             />
           </div>
@@ -357,16 +488,24 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
                     mutasi bank atau e-wallet Anda.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    showToast(`${transfers.length} konfirmasi diekspor ke CSV.`)
-                  }
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-line px-3.5 text-[13px] font-semibold transition hover:border-brand-200 hover:bg-brand-50"
-                >
-                  <Download className="size-4 text-ink-mute" />
-                  Ekspor CSV
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTransferOpen(true)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 text-[13px] font-bold text-white transition hover:bg-brand-700"
+                  >
+                    <Plus className="size-4" strokeWidth={2.5} />
+                    Catat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => exportCsv()}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line px-3.5 text-[13px] font-semibold transition hover:border-brand-200 hover:bg-brand-50"
+                  >
+                    <Download className="size-4 text-ink-mute" />
+                    Ekspor CSV
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 overflow-x-auto rounded-xl border border-line">
@@ -414,7 +553,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
           </div>
 
           {/* Side */}
-          <aside className="space-y-6 lg:sticky lg:top-24">
+          <aside className="space-y-6 lg:sticky lg:top-32">
             <section className={card}>
               <h2 className={cardTitle}>Kode QRIS</h2>
               <p className="mt-0.5 text-[13px] text-ink-soft">
@@ -423,11 +562,12 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
 
               {hasQris ? (
                 <div className="mt-5 text-center">
-                  <QrisCode />
-                  <p className="mt-3 text-[13px] font-bold">
-                    SHILVIA ANISA 21ST BIRTHDAY
-                  </p>
-                  <p className="text-xs text-ink-mute">NMID: ID1024308123915</p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={qrisUrl ?? ""}
+                    alt="Kode QRIS acara"
+                    className="mx-auto size-44 rounded-xl border border-line bg-white object-contain p-2"
+                  />
                   <div className="mt-4 flex justify-center gap-2">
                     <button
                       type="button"
@@ -439,10 +579,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setHasQris(false);
-                        showToast("Kode QRIS dihapus.");
-                      }}
+                      onClick={removeQris}
                       aria-label="Hapus QRIS"
                       className="grid size-9 place-items-center rounded-xl border border-line text-ink-mute transition hover:bg-rose-50 hover:text-rose-600"
                     >
@@ -508,6 +645,7 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
         <AccountModal
           key={editing?.id ?? "new"}
           account={editing}
+          defaultHolder={user?.name ?? ""}
           onClose={() => {
             setAccountOpen(false);
             setEditing(null);
@@ -516,13 +654,17 @@ export default function AngpaoDigitalPage({ slug }: { slug: string }) {
         />
       )}
       {qrisOpen && (
-        <QrisModal
-          onClose={() => setQrisOpen(false)}
-          onSave={() => {
-            setHasQris(true);
-            setQrisOpen(false);
-            showToast("Kode QRIS diperbarui.");
-          }}
+        <QrisModal onClose={() => setQrisOpen(false)} onUpload={uploadQris} />
+      )}
+      {transferOpen && (
+        <TransferFormModal
+          destinations={[
+            ...accounts.filter((a) => a.isActive).map((a) => `${a.bankName} · ${a.accountHolder}`),
+            ...(hasQris ? ["QRIS"] : []),
+            "Lainnya",
+          ]}
+          onClose={() => setTransferOpen(false)}
+          onSubmit={addTransfer}
         />
       )}
       {detail && <TransferModal transfer={detail} onClose={() => setDetail(null)} />}

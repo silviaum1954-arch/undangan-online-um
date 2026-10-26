@@ -2,83 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Sparkles, X } from "lucide-react";
-import { THEMES, THEME_OPTIONS, type EventItem } from "./data";
-
-export function PreviewModal({
-  event,
-  onClose,
-  onRsvp,
-}: {
-  event: EventItem;
-  onClose: () => void;
-  onRsvp: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-900/60 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-xs">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute -top-11 right-0 flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur hover:bg-white/30"
-        >
-          <X className="size-3.5" /> Tutup
-        </button>
-        <div className="overflow-hidden rounded-[36px] border-[6px] border-slate-900 bg-white shadow-2xl">
-          <div className="flex h-6 items-center justify-center bg-slate-900">
-            <div className="h-1.5 w-16 rounded-full bg-slate-700" />
-          </div>
-          <div className="flex h-[30rem] flex-col justify-between overflow-y-auto bg-brand-50/40 p-6 text-center">
-            <div>
-              <span className="inline-block rounded-full bg-brand-100 px-3 py-1 text-[10px] font-semibold text-brand-700">
-                {event.theme.name}
-              </span>
-              <h2 className="mt-4 font-serif text-2xl font-bold leading-tight text-ink">
-                {event.title}
-              </h2>
-              <p className="mt-2 text-xs text-ink-soft">
-                Kami mengundang Anda untuk hadir dalam momen bahagia kami.
-              </p>
-              <div className="mt-6 rounded-2xl border border-line bg-white p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
-                  Tanggal
-                </p>
-                <p className="mt-1 text-sm font-bold text-ink">
-                  {event.dateFormatted}
-                </p>
-                <p className="mt-0.5 text-xs text-brand-700">
-                  Pukul 15:00 WIB – selesai
-                </p>
-              </div>
-              <div className="mt-3 rounded-2xl border border-line bg-white p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
-                  Lokasi
-                </p>
-                <p className="mt-1 text-xs font-bold text-ink">
-                  Grand Ballroom Hotel Jasmine
-                </p>
-                <p className="text-[11px] text-ink-soft">
-                  Jl. Flamboyan No. 24, Jakarta Selatan
-                </p>
-              </div>
-            </div>
-            <div className="pt-5">
-              <button
-                type="button"
-                onClick={onRsvp}
-                className="h-11 w-full rounded-xl bg-brand-600 text-xs font-bold text-white hover:bg-brand-700"
-              >
-                Konfirmasi kehadiran
-              </button>
-              <p className="mt-2 text-[10px] text-ink-mute">
-                Simulasi tampilan di ponsel tamu
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { THEMES } from "@/lib/themes";
 
 const fieldCls =
   "h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none transition placeholder:text-ink-mute focus:border-brand-500 focus:ring-4 focus:ring-brand-100";
@@ -92,7 +16,7 @@ export function CreateEventModal({
 }) {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
-  const [theme, setTheme] = useState(THEME_OPTIONS[0]);
+  const [theme, setTheme] = useState<string>(THEMES[0].id);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -164,22 +88,21 @@ export function CreateEventModal({
               Tema awal
             </span>
             <div className="grid grid-cols-3 gap-2.5">
-              {THEME_OPTIONS.map((name) => {
-                const t = THEMES[name];
-                const active = theme === name;
+              {THEMES.slice(0, 3).map((t) => {
+                const active = theme === t.id;
                 return (
                   <button
-                    key={name}
+                    key={t.id}
                     type="button"
                     aria-pressed={active}
-                    onClick={() => setTheme(name)}
+                    onClick={() => setTheme(t.id)}
                     className={`overflow-hidden rounded-xl border text-left transition ${
                       active
                         ? "border-brand-600 ring-2 ring-brand-200"
                         : "border-line hover:border-brand-200"
                     }`}
                   >
-                    <div className={`h-12 bg-linear-to-br ${t.cover}`} />
+                    <div className={`h-12 bg-linear-to-br ${t.hero}`} />
                     <div className="p-2.5">
                       <p className="truncate font-serif text-xs font-semibold text-ink">
                         {t.name}

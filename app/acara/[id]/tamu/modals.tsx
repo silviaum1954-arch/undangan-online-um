@@ -11,7 +11,9 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { CATEGORIES, guestSlug, type Guest, type RsvpStatus } from "./data";
+import { CATEGORIES, type Guest, type RsvpStatus } from "./data";
+import { slugify, waNumber } from "@/lib/format";
+import { inviteMessage } from "@/lib/invite";
 
 const field =
   "h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none transition placeholder:text-ink-mute focus:border-brand-500 focus:ring-4 focus:ring-brand-100";
@@ -88,6 +90,8 @@ export interface GuestFormValues {
   phone: string;
   quota: number;
   status: RsvpStatus;
+  adults: number;
+  children: number;
 }
 
 export function GuestFormModal({
@@ -106,6 +110,8 @@ export function GuestFormModal({
     phone: guest?.phone ?? "",
     quota: guest?.quota ?? 2,
     status: guest?.status ?? "pending",
+    adults: guest?.dewasa ?? 0,
+    children: guest?.anak ?? 0,
   });
   const set = <K extends keyof GuestFormValues>(k: K, val: GuestFormValues[K]) =>
     setV((p) => ({ ...p, [k]: val }));
@@ -205,11 +211,40 @@ export function GuestFormModal({
           )}
         </div>
 
+        {editing && (v.status === "fiks" || v.status === "ragu") && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="g-adults">Dewasa hadir</Label>
+              <input
+                id="g-adults"
+                type="number"
+                min={0}
+                max={v.quota}
+                value={v.adults}
+                onChange={(e) => set("adults", Math.max(0, Number(e.target.value) || 0))}
+                className={field}
+              />
+            </div>
+            <div>
+              <Label htmlFor="g-children">Anak hadir</Label>
+              <input
+                id="g-children"
+                type="number"
+                min={0}
+                max={v.quota}
+                value={v.children}
+                onChange={(e) => set("children", Math.max(0, Number(e.target.value) || 0))}
+                className={field}
+              />
+            </div>
+          </div>
+        )}
+
         {!editing && (
           <p className="rounded-xl bg-brand-50 px-3.5 py-3 text-xs text-ink-soft">
             Tautan personal:{" "}
             <span className="break-all font-semibold text-brand-700">
-              undang.kuy/{guestSlug(v.name || "nama-tamu")}
+              …/e/…?to={slugify(v.name) || "nama-tamu"}
             </span>
           </p>
         )}
@@ -227,44 +262,38 @@ export function GuestFormModal({
   );
 }
 
-const EVENT_TEXT = "Ulang Tahun ke-21 Shilvia Anisa";
+export interface InviteInfo {
+  title: string;
+  dateLabel: string;
+  time: string | null;
+  venue: string | null;
+}
 
 export function WhatsAppModal({
   guest,
+  event,
   onClose,
   onCopied,
 }: {
   guest: Guest;
+  event: InviteInfo;
   onClose: () => void;
   onCopied: () => void;
 }) {
-  const link = `https://undang.kuy/${guest.slug}`;
-  const text = `Halo ${guest.name}! Kami mengundang Anda untuk hadir di perayaan ${EVENT_TEXT} pada Kamis, 15 Okt 2026, 16:00 WIB. Buka undangan personal Anda di: ${link}`;
+  const link = `${window.location.origin}${guest.path}`;
+  const text = inviteMessage(event, guest.name, link);
+  const number = waNumber(guest.phone);
   return (
     <Modal
       onClose={onClose}
       title="Kirim undangan WhatsApp"
-      subtitle={`${guest.name} · ${guest.phone}`}
+      subtitle={`${guest.name} · ${guest.phone || "nomor belum diisi"}`}
       icon={MessageCircle}
       tone="bg-emerald-50 text-emerald-600"
     >
-      <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 text-[13px] leading-relaxed">
-        <p>
-          Halo <strong>{guest.name}</strong>! ✨
-        </p>
-        <p>
-          Kami mengundang Anda untuk hadir di perayaan <strong>{EVENT_TEXT}</strong>.
-        </p>
-        <p className="font-semibold text-brand-700">
-          📅 Kamis, 15 Okt 2026 · 16:00 WIB
-          <br />
-          📍 The Glass House Bistro, Senopati
-        </p>
-        <p className="break-all rounded-lg bg-white px-2.5 py-2 text-xs text-brand-600">
-          {link}
-        </p>
-        <p className="text-ink-soft">Mohon konfirmasi kehadiran Anda. Terima kasih! 🙏</p>
-      </div>
+      <pre className="whitespace-pre-wrap rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 font-sans text-[13px] leading-relaxed">
+        {text}
+      </pre>
       <div className="mt-5 flex gap-2.5">
         <button
           type="button"
@@ -276,14 +305,20 @@ export function WhatsAppModal({
         >
           <Copy className="size-4" /> Salin pesan
         </button>
-        <a
-          href={`https://wa.me/${guest.phone.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-[13px] font-bold text-white hover:bg-emerald-700"
-        >
-          <Send className="size-4" /> Buka WhatsApp
-        </a>
+        {number ? (
+          <a
+            href={`https://wa.me/${number}?text=${encodeURIComponent(text)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-[13px] font-bold text-white hover:bg-emerald-700"
+          >
+            <Send className="size-4" /> Buka WhatsApp
+          </a>
+        ) : (
+          <span className="flex h-11 flex-1 items-center justify-center rounded-xl bg-slate-100 text-xs text-ink-mute">
+            Isi nomor WhatsApp dulu
+          </span>
+        )}
       </div>
     </Modal>
   );
@@ -291,13 +326,19 @@ export function WhatsAppModal({
 
 export function BroadcastModal({
   guests,
+  event,
   onClose,
   onCopy,
 }: {
   guests: Guest[];
+  event: InviteInfo;
   onClose: () => void;
-  onCopy: () => void;
+  onCopy: (text: string) => void;
 }) {
+  const buildText = () =>
+    guests
+      .map((x) => inviteMessage(event, x.name, `${window.location.origin}${x.path}`))
+      .join("\n\n———\n\n");
   return (
     <Modal
       wide
@@ -321,7 +362,7 @@ export function BroadcastModal({
         <button type="button" onClick={onClose} className={btnGhost}>
           Tutup
         </button>
-        <button type="button" onClick={onCopy} className={btnPrimary}>
+        <button type="button" onClick={() => onCopy(buildText())} className={btnPrimary}>
           <Copy className="size-4" /> Salin teks ({guests.length})
         </button>
       </div>
@@ -336,51 +377,32 @@ export function ExportModal({
 }: {
   count: number;
   onClose: () => void;
-  onExport: () => void;
+  onExport: (opts: { breakdown: boolean; links: boolean }) => void;
 }) {
-  const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
+  const [breakdown, setBreakdown] = useState(true);
+  const [links, setLinks] = useState(true);
   const opts = [
-    { id: "xlsx" as const, icon: FileSpreadsheet, name: "Excel (.xlsx)", note: "Siap diolah" },
-    { id: "csv" as const, icon: Download, name: "CSV (.csv)", note: "Format tabel standar" },
+    { label: "Sertakan rincian anak & dewasa", checked: breakdown, set: setBreakdown },
+    { label: "Sertakan tautan undangan personal", checked: links, set: setLinks },
   ];
   return (
     <Modal
       onClose={onClose}
       title="Ekspor daftar tamu"
-      subtitle={`${count} tamu akan diunduh`}
+      subtitle={`${count} tamu diunduh sebagai file CSV, bisa dibuka di Excel.`}
       icon={FileSpreadsheet}
       tone="bg-emerald-50 text-emerald-600"
     >
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="space-y-2.5">
         {opts.map((o) => (
-          <button
-            key={o.id}
-            type="button"
-            aria-pressed={format === o.id}
-            onClick={() => setFormat(o.id)}
-            className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
-              format === o.id
-                ? "border-brand-600 bg-brand-50 ring-2 ring-brand-100"
-                : "border-line hover:border-brand-200"
-            }`}
-          >
-            <o.icon className="size-5 text-brand-600" />
-            <span>
-              <span className="block text-[13px] font-bold">{o.name}</span>
-              <span className="block text-[11px] text-ink-mute">{o.note}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="mt-4 space-y-2.5">
-        {["Sertakan rincian anak & dewasa", "Sertakan tautan personal"].map((t) => (
-          <label key={t} className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink-soft">
+          <label key={o.label} className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink-soft">
             <input
               type="checkbox"
-              defaultChecked
+              checked={o.checked}
+              onChange={(e) => o.set(e.target.checked)}
               className="size-4 rounded border-line accent-brand-600"
             />
-            {t}
+            {o.label}
           </label>
         ))}
       </div>
@@ -388,8 +410,8 @@ export function ExportModal({
         <button type="button" onClick={onClose} className={btnGhost}>
           Batal
         </button>
-        <button type="button" onClick={onExport} className={btnPrimary}>
-          <Download className="size-4" /> Unduh
+        <button type="button" onClick={() => onExport({ breakdown, links })} className={btnPrimary}>
+          <Download className="size-4" /> Unduh CSV
         </button>
       </div>
     </Modal>

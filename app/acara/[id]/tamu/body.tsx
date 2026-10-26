@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { downloadCsv, slugify } from "@/lib/format";
 import {
   AlertCircle,
   Check,
@@ -19,11 +21,10 @@ import {
   X,
 } from "lucide-react";
 import EventShell from "../shell";
-import { EVENT } from "../event";
+import type { ShellEvent } from "@/lib/data/events";
 import {
-  INITIAL_GUESTS,
+  toGuest,
   STATUS_META,
-  guestSlug,
   initials,
   type Guest,
   type RsvpStatus,
@@ -43,8 +44,29 @@ const PAGE_SIZE = 10;
 const iconBtn =
   "grid size-8 place-items-center rounded-lg text-ink-mute transition hover:bg-brand-50 hover:text-brand-700";
 
-export default function DaftarTamuPage({ slug }: { slug: string }) {
-  const [guests, setGuests] = useState<Guest[]>(INITIAL_GUESTS);
+export interface TamuEvent {
+  id: string;
+  slug: string;
+  totalQuota: number;
+  title: string;
+  dateLabel: string;
+  time: string | null;
+  venue: string | null;
+}
+
+export default function DaftarTamuPage({
+  slug,
+  shell,
+  event,
+  initialGuests,
+}: {
+  slug: string;
+  shell: ShellEvent;
+  event: TamuEvent;
+  initialGuests: Guest[];
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const [guests, setGuests] = useState<Guest[]>(initialGuests);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -110,61 +132,87 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
     setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   }
 
-  function bulkDelete() {
-    const n = selected.length;
-    setGuests((p) => p.filter((x) => !selected.includes(x.id)));
+  async function bulkDelete() {
+    const ids = selected;
+    const { error } = await supabase.from("guests").delete().in("id", ids);
+    if (error) return showToast(`Gagal menghapus: ${error.message}`);
+    setGuests((p) => p.filter((x) => !ids.includes(x.id)));
     setSelected([]);
-    showToast(`${n} tamu dihapus dari daftar.`);
+    showToast(`${ids.length} tamu dihapus dari daftar.`);
   }
 
-  function refresh() {
+  async function refresh() {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-      showToast("Status RSVP diperbarui.");
-    }, 600);
+    const { data, error } = await supabase
+      .from("guests")
+      .select("*")
+      .eq("event_id", event.id)
+      .order("created_at", { ascending: false });
+    setRefreshing(false);
+    if (error) return showToast(`Gagal memuat ulang: ${error.message}`);
+    setGuests(data.map((r) => toGuest(r, event.slug)));
+    showToast("Status RSVP diperbarui.");
   }
 
   function copyLink(x: Guest) {
-    navigator.clipboard?.writeText(`https://undang.kuy/${x.slug}`);
+    navigator.clipboard?.writeText(`${window.location.origin}${x.path}`);
     showToast(`Tautan ${x.name} disalin.`);
   }
 
-  function saveGuest(v: GuestFormValues) {
+  async function saveGuest(v: GuestFormValues) {
     if (editing) {
-      setGuests((p) =>
-        p.map((x) =>
-          x.id !== editing.id
-            ? x
-            : {
-                ...x,
-                ...v,
-                totalHadir:
-                  v.status === "fiks"
-                    ? (x.totalHadir ?? v.quota)
-                    : v.status === "batal"
-                      ? 0
-                      : v.status === "ragu"
-                        ? 1
-                        : null,
-              },
-        ),
-      );
+      const responded = v.status !== "pending";
+      const adults = v.status === "fiks" || v.status === "ragu" ? v.adults : v.status === "batal" ? 0 : null;
+      const children = v.status === "fiks" || v.status === "ragu" ? v.children : v.status === "batal" ? 0 : null;
+      const { data, error } = await supabase
+        .from("guests")
+        .update({
+          name: v.name,
+          category: v.category,
+          phone: v.phone || null,
+          quota: v.quota,
+          status: v.status,
+          adults,
+          children,
+          // first time the owner records an answer, stamp it; clear on reset
+          responded_at:
+            responded ? (editing.status === "pending" ? new Date().toISOString() : undefined) : null,
+        })
+        .eq("id", editing.id)
+        .select()
+        .single();
+      if (error) return showToast(`Gagal menyimpan: ${error.message}`);
+      setGuests((p) => p.map((x) => (x.id === editing.id ? toGuest(data, event.slug) : x)));
       showToast(`Data "${v.name}" diperbarui.`);
     } else {
-      setGuests((p) => [
-        {
-          id: `g-${crypto.randomUUID()}`,
-          ...v,
-          phone: v.phone || "+62 812-0000-0000",
-          status: "pending",
-          anak: null,
-          dewasa: null,
-          totalHadir: null,
-          slug: guestSlug(v.name),
-        },
-        ...p,
-      ]);
+      const base = slugify(v.name) || "tamu";
+      let inserted = null;
+      let lastError = "";
+      for (let attempt = 0; attempt < 3 && !inserted; attempt++) {
+        const personal = attempt === 0 ? base : `${base}-${Math.random().toString(36).slice(2, 6)}`;
+        const { data, error } = await supabase
+          .from("guests")
+          .insert({
+            event_id: event.id,
+            name: v.name,
+            category: v.category,
+            phone: v.phone || null,
+            quota: v.quota,
+            personal_slug: personal,
+          })
+          .select()
+          .single();
+        if (!error) inserted = data;
+        else if (error.code === "23505") lastError = "Tautan tamu bentrok, mencoba lagi…";
+        else {
+          const msg = error.message.includes("Kuota undangan penuh")
+            ? "Kuota undangan penuh. Naikkan kuota di Pengaturan."
+            : error.message;
+          return showToast(`Gagal menambah tamu: ${msg}`);
+        }
+      }
+      if (!inserted) return showToast(`Gagal menambah tamu. ${lastError}`);
+      setGuests((p) => [toGuest(inserted, event.slug), ...p]);
       showToast(`"${v.name}" ditambahkan.`);
     }
     setFormOpen(false);
@@ -194,8 +242,7 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
       <EventShell
         slug={slug}
         active="tamu"
-        eventName={EVENT.name}
-        eventDate={EVENT.date}
+        event={shell}
         wide
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -466,7 +513,7 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
                               <Copy className="size-4" />
                             </button>
                             <a
-                              href={`/e/${slug}?to=${encodeURIComponent(x.name)}`}
+                              href={x.path}
                               target="_blank"
                               rel="noreferrer"
                               title="Pratinjau undangan"
@@ -571,6 +618,7 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
       {waGuest && (
         <WhatsAppModal
           guest={waGuest}
+          event={event}
           onClose={() => setWaGuest(null)}
           onCopied={() => showToast("Teks pesan disalin.")}
         />
@@ -579,7 +627,9 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
         <BroadcastModal
           guests={selectedGuests}
           onClose={() => setShowBroadcast(false)}
-          onCopy={() => {
+          event={event}
+          onCopy={(text) => {
+            navigator.clipboard?.writeText(text);
             setShowBroadcast(false);
             showToast(`Teks pengingat untuk ${selectedGuests.length} tamu disalin.`);
           }}
@@ -589,9 +639,30 @@ export default function DaftarTamuPage({ slug }: { slug: string }) {
         <ExportModal
           count={guests.length}
           onClose={() => setShowExport(false)}
-          onExport={() => {
+          onExport={(opts) => {
             setShowExport(false);
-            showToast(`Data ${guests.length} tamu berhasil diunduh.`);
+            const origin = window.location.origin;
+            downloadCsv(`daftar-tamu-${event.slug}.csv`, [
+              [
+                "Nama",
+                "Kategori",
+                "WhatsApp",
+                "Kuota",
+                "Status RSVP",
+                ...(opts.breakdown ? ["Dewasa", "Anak", "Total hadir"] : []),
+                ...(opts.links ? ["Tautan undangan"] : []),
+              ],
+              ...guests.map((g) => [
+                g.name,
+                g.category,
+                g.phone,
+                g.quota,
+                STATUS_META[g.status].label,
+                ...(opts.breakdown ? [g.dewasa ?? "", g.anak ?? "", g.totalHadir ?? ""] : []),
+                ...(opts.links ? [`${origin}${g.path}`] : []),
+              ]),
+            ]);
+            showToast(`${guests.length} tamu diekspor ke CSV.`);
           }}
         />
       )}

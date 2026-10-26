@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { QrCode, Upload, X } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import {
   BANKS,
   rupiah,
@@ -73,10 +73,12 @@ export interface AccountValues {
 
 export function AccountModal({
   account,
+  defaultHolder,
   onClose,
   onSubmit,
 }: {
   account: Account | null;
+  defaultHolder: string;
   onClose: () => void;
   onSubmit: (v: AccountValues) => void;
 }) {
@@ -85,7 +87,7 @@ export function AccountModal({
     type: account?.type ?? "Bank",
     bankName: account?.bankName ?? BANKS.Bank[1],
     accountNumber: account?.accountNumber ?? "",
-    accountHolder: account?.accountHolder ?? "Shilvia Anisa",
+    accountHolder: account?.accountHolder ?? defaultHolder,
   });
 
   const banks = BANKS[v.type].includes(v.bankName)
@@ -187,39 +189,158 @@ export function AccountModal({
 
 export function QrisModal({
   onClose,
-  onSave,
+  onUpload,
 }: {
   onClose: () => void;
-  onSave: () => void;
+  onUpload: (file: File) => Promise<boolean>;
 }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function pick(f: File | null) {
+    setError(null);
+    if (f && !["image/png", "image/jpeg", "image/webp"].includes(f.type)) {
+      setFile(null);
+      return setError("Gunakan file PNG, JPG, atau WebP.");
+    }
+    if (f && f.size > 2 * 1024 * 1024) {
+      setFile(null);
+      return setError("Ukuran file maksimal 2 MB.");
+    }
+    setFile(f);
+  }
+
+  async function save() {
+    if (!file) return setError("Pilih file QRIS terlebih dahulu.");
+    setBusy(true);
+    const ok = await onUpload(file);
+    setBusy(false);
+    if (!ok) setError("Gagal mengunggah. Silakan coba lagi.");
+  }
+
   return (
     <Modal
       onClose={onClose}
       title="Unggah kode QRIS"
       subtitle="Tamu bisa memindai langsung tanpa mengetik nomor rekening."
     >
-      <button
-        type="button"
-        className="flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50 px-6 py-8 text-center transition hover:bg-brand-50"
-      >
+      <label className="flex w-full cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50 px-6 py-8 text-center transition hover:bg-brand-50">
         <Upload className="size-7 text-brand-600" />
-        <span className="mt-2 text-[13px] font-semibold">Pilih file QRIS</span>
-        <span className="mt-1 text-xs text-ink-mute">
-          PNG atau JPG, maksimal 2 MB, rasio 1:1, minimal 500×500 px
+        <span className="mt-2 text-[13px] font-semibold">
+          {file ? file.name : "Pilih file QRIS"}
         </span>
-      </button>
+        <span className="mt-1 text-xs text-ink-mute">
+          PNG, JPG, atau WebP, maksimal 2 MB, rasio 1:1
+        </span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          aria-label="File QRIS"
+          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+        />
+      </label>
+      {error && (
+        <p role="alert" className="mt-3 text-xs text-rose-600">
+          {error}
+        </p>
+      )}
       <p className="mt-3 text-xs text-ink-soft">
-        Pastikan kontras hitam-putih jelas dan QRIS masih berlaku. QRIS dari bank
-        atau merchant e-wallet mana pun bisa dipindai semua aplikasi.
+        Pastikan kontras hitam-putih jelas dan QRIS masih berlaku. Gambar akan
+        tampil publik di undangan, jadi jangan unggah gambar selain QRIS.
       </p>
       <div className="mt-5 flex justify-end gap-2.5 border-t border-line pt-5">
         <button type="button" onClick={onClose} className={btnGhost}>
           Batal
         </button>
-        <button type="button" onClick={onSave} className={btnPrimary}>
-          Simpan QRIS
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className={`${btnPrimary} disabled:opacity-70`}
+        >
+          {busy ? "Mengunggah…" : "Simpan QRIS"}
         </button>
       </div>
+    </Modal>
+  );
+}
+
+export function TransferFormModal({
+  destinations,
+  onClose,
+  onSubmit,
+}: {
+  destinations: string[];
+  onClose: () => void;
+  onSubmit: (v: { sender: string; amount: number; destination: string }) => void;
+}) {
+  const [sender, setSender] = useState("");
+  const [amount, setAmount] = useState("");
+  const [destination, setDestination] = useState(destinations[0] ?? "QRIS");
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const n = Number(amount.replace(/D/g, ""));
+    if (!sender.trim() || !n) return;
+    onSubmit({ sender: sender.trim(), amount: n, destination });
+  }
+
+  return (
+    <Modal
+      onClose={onClose}
+      title="Catat transfer tamu"
+      subtitle="Catat tanda kasih yang Anda terima, misalnya dari mutasi bank."
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <Label htmlFor="t-sender">Nama pengirim</Label>
+          <input
+            id="t-sender"
+            required
+            autoFocus
+            value={sender}
+            onChange={(e) => setSender(e.target.value)}
+            className={field}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="t-amount">Nominal (Rp)</Label>
+            <input
+              id="t-amount"
+              required
+              inputMode="numeric"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="500000"
+              className={`${field} tabular-nums`}
+            />
+          </div>
+          <div>
+            <Label htmlFor="t-dest">Tujuan</Label>
+            <select
+              id="t-dest"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              className={field}
+            >
+              {destinations.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2.5 border-t border-line pt-5">
+          <button type="button" onClick={onClose} className={btnGhost}>
+            Batal
+          </button>
+          <button type="submit" className={btnPrimary}>
+            Catat transfer
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }
@@ -256,33 +377,5 @@ export function TransferModal({
         Tutup
       </button>
     </Modal>
-  );
-}
-
-export function QrisCode() {
-  return (
-    <div className="relative mx-auto size-44 rounded-xl border border-line bg-white p-2.5">
-      <svg viewBox="0 0 100 100" className="size-full fill-slate-900" aria-hidden>
-        <rect x="0" y="0" width="28" height="28" rx="4" />
-        <rect x="4" y="4" width="20" height="20" fill="white" rx="2" />
-        <rect x="8" y="8" width="12" height="12" rx="2" />
-        <rect x="72" y="0" width="28" height="28" rx="4" />
-        <rect x="76" y="4" width="20" height="20" fill="white" rx="2" />
-        <rect x="80" y="8" width="12" height="12" rx="2" />
-        <rect x="0" y="72" width="28" height="28" rx="4" />
-        <rect x="4" y="76" width="20" height="20" fill="white" rx="2" />
-        <rect x="8" y="80" width="12" height="12" rx="2" />
-        {[
-          [36, 8], [48, 14], [58, 8], [36, 24], [52, 24], [8, 36], [20, 42], [8, 54],
-          [74, 36], [86, 42], [74, 54], [86, 60], [36, 74], [48, 80], [58, 74],
-          [36, 88], [52, 88], [74, 74], [86, 82], [80, 90],
-        ].map(([x, y]) => (
-          <rect key={`${x}-${y}`} x={x} y={y} width="6" height="6" />
-        ))}
-      </svg>
-      <div className="absolute inset-0 m-auto grid size-9 place-items-center rounded-lg bg-brand-600 text-white shadow">
-        <QrCode className="size-4" />
-      </div>
-    </div>
   );
 }

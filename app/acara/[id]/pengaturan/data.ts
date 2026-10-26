@@ -1,3 +1,5 @@
+import type { EventRow } from "@/lib/data/events";
+
 export type EventStatus = "draf" | "terbit" | "selesai" | "diarsipkan";
 
 export interface Settings {
@@ -7,23 +9,11 @@ export interface Settings {
   reminderArchive: boolean;
   metaTitle: string;
   metaDescription: string;
-  ogImageName: string;
+  /** storage path in the event-media bucket, empty when unset */
+  ogImagePath: string;
   totalQuota: number;
   maxPax: number;
 }
-
-export const DEFAULT_SETTINGS: Settings = {
-  slug: "shilvia-21",
-  autoClose: true,
-  closeTiming: "h1_2359",
-  reminderArchive: true,
-  metaTitle: "The 21st Sweet Celebration - Shilvia Anisa",
-  metaDescription:
-    "Dengan penuh rasa syukur dan sukacita, kami mengundang Anda untuk hadir di perayaan ulang tahun ke-21 Shilvia Anisa.",
-  ogImageName: "og-banner-shilvia-21st.jpg",
-  totalQuota: 50,
-  maxPax: 4,
-};
 
 export const STATUS_ORDER: EventStatus[] = ["draf", "terbit", "selesai", "diarsipkan"];
 
@@ -47,6 +37,34 @@ export const CLOSE_TIMINGS = [
   { value: "h2_1200", label: "H+2 pukul 12:00 WIB" },
 ];
 
-export const USED_QUOTA = 48;
-export const EVENT_TITLE = "Ulang Tahun ke-21 Shilvia Anisa";
 export const PUBLIC_HOST = "undang.kuy";
+
+export function settingsFromEvent(e: EventRow): Settings {
+  return {
+    slug: e.slug,
+    autoClose: e.auto_close,
+    closeTiming: e.close_timing,
+    reminderArchive: e.remind_archive,
+    metaTitle: e.og_title ?? "",
+    metaDescription: e.og_description ?? "",
+    ogImagePath: e.og_image_path ?? "",
+    totalQuota: e.total_quota,
+    maxPax: e.max_pax,
+  };
+}
+
+export type Prefs = {
+  lang: string;
+  tz: string;
+  weekly: boolean;
+  newWish: boolean;
+};
+
+export const DEFAULT_PREFS: Prefs = { lang: "Bahasa Indonesia", tz: "WIB (GMT+07:00)", weekly: true, newWish: true };
+
+export interface ProfileData {
+  fullName: string;
+  email: string;
+  phone: string;
+  prefs: Prefs;
+}

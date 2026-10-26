@@ -1,13 +1,14 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useCurrentUser, useSignOut } from "@/lib/supabase/use-user";
+import Notifications from "../../notifications";
+import type { EventStatus, ShellEvent } from "@/lib/data/events";
 import {
   ArrowLeft,
-  Bell,
+  ChevronDown,
   Gift,
-  HelpCircle,
   Layers,
   LogOut,
   Mail,
@@ -26,11 +27,11 @@ export type NavId =
   | "angpao"
   | "pengaturan";
 
-const NAV: { id: NavId; label: string; path: string; icon: LucideIcon; badge?: string }[] = [
+const NAV: { id: NavId; label: string; path: string; icon: LucideIcon }[] = [
   { id: "ringkasan", label: "Ringkasan", path: "", icon: Layers },
   { id: "edit", label: "Edit undangan", path: "/edit", icon: Palette },
-  { id: "tamu", label: "Daftar tamu", path: "/tamu", icon: Users, badge: "48" },
-  { id: "ucapan", label: "Ucapan", path: "/ucapan", icon: MessageSquare, badge: "12" },
+  { id: "tamu", label: "Daftar tamu", path: "/tamu", icon: Users },
+  { id: "ucapan", label: "Ucapan", path: "/ucapan", icon: MessageSquare },
   { id: "angpao", label: "Angpao", path: "/angpao", icon: Gift },
   { id: "pengaturan", label: "Pengaturan", path: "/pengaturan", icon: Settings },
 ];
@@ -38,170 +39,170 @@ const NAV: { id: NavId; label: string; path: string; icon: LucideIcon; badge?: s
 interface Props {
   slug: string;
   active: NavId;
-  eventName: string;
-  eventDate: string;
+  event: ShellEvent;
   wide?: boolean;
   children: ReactNode;
 }
 
+const STATUS_DOT: Record<EventStatus, { label: string; dot: string }> = {
+  terbit: { label: "Terbit", dot: "bg-emerald-500" },
+  draf: { label: "Draf", dot: "bg-amber-400" },
+  selesai: { label: "Selesai", dot: "bg-brand-500" },
+  diarsipkan: { label: "Diarsipkan", dot: "bg-slate-400" },
+};
+
+const iconBtn =
+  "relative grid size-9 place-items-center rounded-lg text-ink-soft transition hover:bg-brand-50 hover:text-brand-700";
+
 export default function EventShell({
   slug,
   active,
-  eventName,
-  eventDate,
+  event,
   wide,
   children,
 }: Props) {
-  const router = useRouter();
+  const user = useCurrentUser();
+  const signOut = useSignOut();
+  const [menuOpen, setMenuOpen] = useState(false);
   const base = `/acara/${slug}`;
-  const current = NAV.find((n) => n.id === active)!;
+  const width = wide ? "max-w-7xl" : "max-w-6xl";
 
   return (
-    <div className="flex min-h-screen bg-background text-ink">
-      {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between border-r border-line bg-white p-4 lg:flex">
-        <div>
-          <Link href="/beranda" className="flex items-center gap-2.5 px-2 py-1">
-            <span className="grid size-9 place-items-center rounded-xl bg-brand-600 text-white">
-              <Mail className="size-[18px]" />
-            </span>
-            <span className="text-lg font-extrabold tracking-tight">
-              UndangKuy
-            </span>
-          </Link>
+    <div className="flex min-h-screen flex-col bg-background text-ink">
+      <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
+        <div className={`mx-auto flex h-14 ${width} items-center justify-between gap-4 px-4 sm:px-6 lg:px-8`}>
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <Link href="/beranda" className="flex shrink-0 items-center gap-2.5">
+              <span className="grid size-9 place-items-center rounded-xl bg-brand-600 text-white">
+                <Mail className="size-[18px]" />
+              </span>
+              <span className="hidden text-lg font-extrabold tracking-tight sm:block">
+                UndangKuy
+              </span>
+            </Link>
 
-          <Link
-            href="/beranda"
-            className="group mt-6 block rounded-xl border border-line p-3 transition hover:border-brand-200 hover:bg-brand-50/50"
-          >
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-mute transition group-hover:text-brand-700">
-              <ArrowLeft className="size-3.5" />
-              Semua acara
-            </span>
-            <span className="mt-2 block truncate text-sm font-bold">
-              {eventName}
-            </span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-soft">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              Terbit · {eventDate}
-            </span>
-          </Link>
+            <span aria-hidden className="h-6 w-px shrink-0 bg-line" />
 
-          <nav className="mt-6 space-y-0.5" aria-label="Menu acara">
-            {NAV.map(({ id: nid, label, path, icon: Icon, badge }) => {
-              const on = nid === active;
+            <Link
+              href="/beranda"
+              title="Kembali ke semua acara"
+              className="group flex min-w-0 items-center gap-2.5 rounded-lg py-1 pr-2 transition hover:bg-brand-50/60"
+            >
+              <ArrowLeft className="size-4 shrink-0 text-ink-mute transition group-hover:-translate-x-0.5 group-hover:text-brand-700" />
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-[13px] font-bold">
+                  {event.name}
+                </span>
+                <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-ink-mute">
+                  <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[event.status].dot}`} />
+                  <span className="truncate">
+                    {STATUS_DOT[event.status].label} · {event.dateLabel}
+                  </span>
+                </span>
+              </span>
+            </Link>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <Notifications className={iconBtn} />
+
+            <span aria-hidden className="mx-2 hidden h-6 w-px bg-line sm:block" />
+
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="flex items-center gap-2.5 rounded-lg py-1 pl-1 pr-2 transition hover:bg-brand-50"
+              >
+                <span className="grid size-8 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
+                  {user?.initials ?? ""}
+                </span>
+                <span className="hidden text-left leading-tight md:block">
+                  <span className="block text-[13px] font-semibold">{user?.name ?? ""}</span>
+                  <span className="block text-[11px] text-ink-mute">Pemilik acara</span>
+                </span>
+                <ChevronDown className="hidden size-3.5 text-ink-mute md:block" />
+              </button>
+              {menuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setMenuOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-line bg-white p-1.5 shadow-xl"
+                  >
+                    <div className="border-b border-line px-2.5 pb-2.5 pt-1.5">
+                      <p className="text-[13px] font-semibold">{user?.name ?? ""}</p>
+                      <p className="text-xs text-ink-mute">{user?.email ?? ""}</p>
+                    </div>
+                    <Link
+                      href="/beranda"
+                      role="menuitem"
+                      className="mt-1.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium hover:bg-brand-50"
+                    >
+                      <Layers className="size-4 text-ink-mute" />
+                      Semua acara
+                    </Link>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={signOut}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-rose-600 hover:bg-rose-50"
+                    >
+                      <LogOut className="size-4" />
+                      Keluar
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <nav aria-label="Menu acara" className="border-t border-line">
+          <div className={`mx-auto flex ${width} gap-1 overflow-x-auto px-1 sm:px-3 lg:px-5`}>
+            {NAV.map(({ id, label, path, icon: Icon }) => {
+              const on = id === active;
+              const badge =
+                id === "tamu" ? event.guests : id === "ucapan" ? event.wishes : null;
               return (
                 <Link
-                  key={nid}
+                  key={id}
                   href={`${base}${path}`}
                   aria-current={on ? "page" : undefined}
-                  className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                  className={`flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-[13px] font-semibold transition ${
                     on
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-ink-soft hover:bg-brand-50/60 hover:text-ink"
+                      ? "border-brand-600 text-brand-700"
+                      : "border-transparent text-ink-soft hover:text-ink"
                   }`}
                 >
-                  <span className="flex items-center gap-3">
-                    <Icon
-                      className={`size-4 ${on ? "text-brand-600" : "text-ink-mute"}`}
-                    />
-                    {label}
-                  </span>
-                  {badge && (
-                    <span className="rounded-full bg-white px-2 text-[11px] font-bold text-ink-soft ring-1 ring-line">
+                  <Icon className="size-4" />
+                  {label}
+                  {badge !== null && badge > 0 && (
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] font-bold tabular-nums ${
+                        on ? "bg-brand-100 text-brand-700" : "bg-brand-50 text-ink-mute"
+                      }`}
+                    >
                       {badge}
                     </span>
                   )}
                 </Link>
               );
             })}
-          </nav>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-line px-2 pt-4">
-          <div className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-              SA
-            </span>
-            <div className="leading-tight">
-              <p className="text-[13px] font-semibold">Shilvia Anisa</p>
-              <p className="text-[11px] text-ink-mute">Pemilik acara</p>
-            </div>
           </div>
-          <button
-            type="button"
-            aria-label="Keluar"
-            onClick={() => router.push("/")}
-            className="grid size-8 place-items-center rounded-lg text-ink-mute transition hover:bg-rose-50 hover:text-rose-600"
-          >
-            <LogOut className="size-4" />
-          </button>
-        </div>
-      </aside>
+        </nav>
+      </header>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
-          <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
-            <nav
-              aria-label="Breadcrumb"
-              className="flex min-w-0 items-center gap-2 text-[13px] text-ink-soft"
-            >
-              <Link href="/beranda" className="hover:text-brand-700">
-                Acara saya
-              </Link>
-              <span className="text-ink-mute">/</span>
-              <span className="hidden truncate sm:inline">{eventName}</span>
-              <span className="hidden text-ink-mute sm:inline">/</span>
-              <span className="font-semibold text-ink">{current.label}</span>
-            </nav>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Bantuan"
-                className="grid size-9 place-items-center rounded-lg text-ink-soft hover:bg-brand-50 hover:text-brand-700"
-              >
-                <HelpCircle className="size-[18px]" />
-              </button>
-              <button
-                type="button"
-                aria-label="Notifikasi"
-                className="relative grid size-9 place-items-center rounded-lg text-ink-soft hover:bg-brand-50 hover:text-brand-700"
-              >
-                <Bell className="size-[18px]" />
-                <span className="absolute right-2 top-2 size-2 rounded-full bg-brand-600 ring-2 ring-white" />
-              </button>
-            </div>
-          </div>
-
-          {/* Mobile section nav */}
-          <nav
-            aria-label="Menu acara"
-            className="flex gap-1 overflow-x-auto border-t border-line px-3 lg:hidden"
-          >
-            {NAV.map(({ id: nid, label, path }) => {
-              const on = nid === active;
-              return (
-                <Link
-                  key={nid}
-                  href={`${base}${path}`}
-                  aria-current={on ? "page" : undefined}
-                  className={`shrink-0 border-b-2 px-3 py-3 text-[13px] font-semibold ${
-                    on
-                      ? "border-brand-600 text-brand-700"
-                      : "border-transparent text-ink-soft"
-                  }`}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
-        </header>
-
-        <main className={`mx-auto w-full flex-1 px-4 py-8 sm:px-6 lg:px-8 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
-          {children}
-        </main>
-      </div>
+      <main
+        className={`mx-auto w-full flex-1 px-4 py-8 sm:px-6 lg:px-8 ${width}`}
+      >
+        {children}
+      </main>
     </div>
   );
 }

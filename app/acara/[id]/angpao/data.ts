@@ -1,3 +1,9 @@
+import type { Database } from "@/lib/database.types";
+import { formatDateTimeWib } from "@/lib/format";
+
+type AccountRow = Database["public"]["Tables"]["payment_accounts"]["Row"];
+type TransferRow = Database["public"]["Tables"]["gift_confirmations"]["Row"];
+
 export type AccountType = "Bank" | "E-Wallet";
 
 export interface Account {
@@ -47,42 +53,37 @@ export function logoFor(name: string): { bg: string; text: string } {
   return { bg: "bg-brand-700", text: name.slice(0, 3).toUpperCase() };
 }
 
-export const rupiah = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
+export { rupiah } from "@/lib/format";
 
-export const INITIAL_ACCOUNTS: Account[] = [
-  {
-    id: "acc-1",
-    bankName: "Bank Central Asia (BCA)",
-    type: "Bank",
-    accountNumber: "522-089-1234",
-    accountHolder: "Shilvia Anisa",
-    isPrimary: true,
-    isActive: true,
-  },
-  {
-    id: "acc-2",
-    bankName: "GoPay",
-    type: "E-Wallet",
-    accountNumber: "0812-3456-7890",
-    accountHolder: "Shilvia Anisa",
-    isActive: true,
-  },
-];
+export const toDbType = (t: AccountType) => (t === "Bank" ? "bank" : "e_wallet") as "bank" | "e_wallet";
 
-export const INITIAL_TRANSFERS: Transfer[] = [
-  { id: "tf-1", sender: "Clarissa & Pasangan", destination: "BCA · Shilvia Anisa", amount: 500000, time: "Hari ini, 14:20 WIB" },
-  { id: "tf-2", sender: "Budi Pratama", destination: "QRIS", amount: 350000, time: "Hari ini, 11:05 WIB" },
-  { id: "tf-3", sender: "Om Dani & Keluarga", destination: "BCA · Shilvia Anisa", amount: 1000000, time: "Kemarin, 20:15 WIB" },
-  { id: "tf-4", sender: "Jessica Tanudjaya", destination: "GoPay · Shilvia Anisa", amount: 250000, time: "Kemarin, 16:40 WIB" },
-];
-
-export function initials(name: string) {
-  return (
-    name
-      .split(/\s+/)
-      .filter((p) => /[a-z0-9]/i.test(p))
-      .slice(0, 2)
-      .map((p) => p[0].toUpperCase())
-      .join("") || "?"
-  );
+export function toAccount(row: AccountRow): Account {
+  return {
+    id: row.id,
+    bankName: row.bank_name,
+    type: row.type === "bank" ? "Bank" : "E-Wallet",
+    accountNumber: row.account_number,
+    accountHolder: row.account_holder,
+    isPrimary: row.is_primary,
+    isActive: row.is_active,
+  };
 }
+
+export function toTransfer(row: TransferRow): Transfer {
+  return {
+    id: row.id,
+    sender: row.sender_name,
+    destination: row.destination,
+    amount: row.amount,
+    time: formatDateTimeWib(row.created_at),
+  };
+}
+
+export interface GiftSettings {
+  enabled: boolean;
+  personalOnly: boolean;
+  transferForm: boolean;
+  emailNotify: boolean;
+}
+
+export { initials } from "@/lib/format";

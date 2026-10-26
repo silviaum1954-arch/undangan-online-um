@@ -9,9 +9,8 @@ import {
   Download,
   Eye,
   EyeOff,
-  FileSpreadsheet,
-  FileText,
   Heart,
+  Plus,
   MessageSquare,
   RotateCw,
   Search,
@@ -20,9 +19,11 @@ import {
   X,
 } from "lucide-react";
 import EventShell from "../shell";
-import { EVENT } from "../event";
+import type { ShellEvent } from "@/lib/data/events";
 import Switch from "../switch";
-import { INITIAL_WISHES, initials, type Wish } from "./data";
+import { createClient } from "@/lib/supabase/client";
+import { downloadCsv } from "@/lib/format";
+import { initials, toWish, type Wish, type WishSettings } from "./data";
 
 type Tab = "semua" | Wish["status"];
 type Sort = "terbaru" | "terlama" | "nama";
@@ -32,8 +33,22 @@ const PAGE_SIZE = 10;
 const selectCls =
   "h-10 cursor-pointer appearance-none rounded-xl border border-line bg-white pl-3.5 pr-9 text-sm font-medium outline-none transition hover:border-brand-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-100";
 
-export default function ModerasiUcapanPage({ slug }: { slug: string }) {
-  const [wishes, setWishes] = useState<Wish[]>(INITIAL_WISHES);
+export default function ModerasiUcapanPage({
+  slug,
+  shell,
+  eventId,
+  initialWishes,
+  initialSettings,
+}: {
+  slug: string;
+  shell: ShellEvent;
+  eventId: string;
+  initialWishes: Wish[];
+  initialSettings: WishSettings;
+}) {
+  const supabase = useMemo(() => createClient(), []);
+  const [wishes, setWishes] = useState<Wish[]>(initialWishes);
+  const [showAdd, setShowAdd] = useState(false);
   const [tab, setTab] = useState<Tab>("semua");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("terbaru");
@@ -42,11 +57,14 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
   const [toast, setToast] = useState<string | null>(null);
   const [showExport, setShowExport] = useState(false);
 
-  const [autoPublish, setAutoPublish] = useState(true);
-  const [manualApproval, setManualApproval] = useState(false);
-  const [closeWishes, setCloseWishes] = useState(false);
-  const [spamFilter, setSpamFilter] = useState(true);
-  const [charLimit, setCharLimit] = useState("300");
+  const [autoPublish, setAutoPublish] = useState(initialSettings.autoPublish);
+  const [manualApproval, setManualApproval] = useState(initialSettings.manualApproval);
+  const [closeWishes, setCloseWishes] = useState(initialSettings.closed);
+  const [spamFilter, setSpamFilter] = useState(initialSettings.spamFilter);
+  const [charLimit, setCharLimit] = useState(
+    initialSettings.charLimit === null ? "unlimited" : String(initialSettings.charLimit),
+  );
+  const [savingSettings, setSavingSettings] = useState(false);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -86,8 +104,10 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
   const current = Math.min(page, pages);
   const rows = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
 
-  function toggleStatus(w: Wish) {
+  async function toggleStatus(w: Wish) {
     const next = w.status === "tampil" ? "disembunyikan" : "tampil";
+    const { error } = await supabase.from("wishes").update({ status: next }).eq("id", w.id);
+    if (error) return showToast(`Gagal memperbarui: ${error.message}`);
     setWishes((p) => p.map((x) => (x.id === w.id ? { ...x, status: next } : x)));
     showToast(
       next === "tampil"
@@ -96,22 +116,69 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
     );
   }
 
-  function remove(w: Wish) {
+  async function remove(w: Wish) {
     if (!confirm(`Hapus ucapan dari "${w.sender}"?`)) return;
+    const { error } = await supabase.from("wishes").delete().eq("id", w.id);
+    if (error) return showToast(`Gagal menghapus: ${error.message}`);
     setWishes((p) => p.filter((x) => x.id !== w.id));
     showToast(`Ucapan "${w.sender}" dihapus.`);
   }
 
-  function like(id: string) {
-    setWishes((p) => p.map((x) => (x.id === id ? { ...x, liked: !x.liked } : x)));
+  async function like(w: Wish) {
+    const liked = !w.liked;
+    setWishes((p) => p.map((x) => (x.id === w.id ? { ...x, liked } : x)));
+    const { error } = await supabase.from("wishes").update({ liked }).eq("id", w.id);
+    if (error) {
+      setWishes((p) => p.map((x) => (x.id === w.id ? { ...x, liked: w.liked } : x)));
+      showToast(`Gagal menyimpan: ${error.message}`);
+    }
   }
 
-  function refresh() {
+  async function refresh() {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-      showToast("Daftar ucapan diperbarui.");
-    }, 600);
+    const { data, error } = await supabase
+      .from("wishes")
+      .select("*")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
+    setRefreshing(false);
+    if (error) return showToast(`Gagal memuat ulang: ${error.message}`);
+    const now = Date.now();
+    setWishes(data.map((r) => toWish(r, now)));
+    showToast("Daftar ucapan diperbarui.");
+  }
+
+  async function addWish(v: { sender: string; message: string; tag: string }) {
+    const { data, error } = await supabase
+      .from("wishes")
+      .insert({
+        event_id: eventId,
+        sender_name: v.sender,
+        message: v.message,
+        tag: v.tag || null,
+      })
+      .select()
+      .single();
+    if (error) return showToast(`Gagal menambah ucapan: ${error.message}`);
+    setWishes((p) => [toWish(data, Date.now()), ...p]);
+    setShowAdd(false);
+    showToast("Ucapan ditambahkan.");
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    const { error } = await supabase
+      .from("events")
+      .update({
+        wishes_auto_publish: autoPublish,
+        wishes_manual_approval: manualApproval,
+        wishes_closed: closeWishes,
+        wishes_spam_filter: spamFilter,
+        wishes_char_limit: charLimit === "unlimited" ? null : Number(charLimit),
+      })
+      .eq("id", eventId);
+    setSavingSettings(false);
+    showToast(error ? `Gagal menyimpan: ${error.message}` : "Pengaturan buku ucapan disimpan.");
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -168,8 +235,7 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
       <EventShell
         slug={slug}
         active="ucapan"
-        eventName={EVENT.name}
-        eventDate={EVENT.date}
+        event={shell}
         wide
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -181,14 +247,24 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
               Baca, moderasi, dan kelola doa dari para tamu.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowExport(true)}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white px-4 text-[13px] font-semibold transition hover:border-brand-200 hover:bg-brand-50"
-          >
-            <Download className="size-4 text-ink-mute" />
-            Ekspor
-          </button>
+          <div className="flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => setShowExport(true)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white px-4 text-[13px] font-semibold transition hover:border-brand-200 hover:bg-brand-50"
+            >
+              <Download className="size-4 text-ink-mute" />
+              Ekspor
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-600 px-4 text-[13px] font-bold text-white shadow-[0_8px_20px_-8px_rgba(101,67,143,0.7)] transition hover:bg-brand-700"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              Tambah ucapan
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -300,7 +376,7 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
                                 {w.tag}
                               </span>
                             ) : (
-                              <span className="text-xs text-ink-mute">· {w.tag}</span>
+                              w.tag ? <span className="text-xs text-ink-mute">· {w.tag}</span> : null
                             )}
                             {hidden && !w.isSpam && (
                               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
@@ -327,7 +403,7 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
                       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
                         <button
                           type="button"
-                          onClick={() => like(w.id)}
+                          onClick={() => like(w)}
                           aria-pressed={w.liked}
                           className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition ${
                             w.liked
@@ -398,7 +474,7 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
           </div>
 
           {/* Settings */}
-          <aside className="space-y-4 lg:sticky lg:top-24">
+          <aside className="space-y-4 lg:sticky lg:top-32">
             <section className="rounded-2xl border border-line bg-white p-5">
               <h2 className="text-[15px] font-bold">Pengaturan ucapan</h2>
               <p className="mt-0.5 text-[13px] text-ink-soft">
@@ -408,7 +484,7 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  showToast("Pengaturan buku ucapan disimpan.");
+                  saveSettings();
                 }}
                 className="mt-5"
               >
@@ -454,9 +530,10 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
 
                 <button
                   type="submit"
-                  className="mt-4 h-11 w-full rounded-xl bg-brand-600 text-[13px] font-bold text-white shadow-[0_8px_20px_-8px_rgba(101,67,143,0.7)] transition hover:bg-brand-700"
+                  disabled={savingSettings}
+                  className="mt-4 h-11 w-full rounded-xl bg-brand-600 text-[13px] font-bold text-white shadow-[0_8px_20px_-8px_rgba(101,67,143,0.7)] transition hover:bg-brand-700 disabled:opacity-70"
                 >
-                  Simpan pengaturan
+                  {savingSettings ? "Menyimpan…" : "Simpan pengaturan"}
                 </button>
               </form>
             </section>
@@ -483,13 +560,26 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
         </div>
       </EventShell>
 
+      {showAdd && <AddWishDialog onClose={() => setShowAdd(false)} onAdd={addWish} />}
       {showExport && (
         <ExportDialog
           count={wishes.length}
+          hiddenCount={counts.disembunyikan}
           onClose={() => setShowExport(false)}
-          onExport={() => {
+          onExport={(includeHidden) => {
             setShowExport(false);
-            showToast(`${wishes.length} ucapan berhasil diunduh.`);
+            const rows = wishes.filter((w) => includeHidden || w.status === "tampil");
+            downloadCsv(`ucapan-${slug}.csv`, [
+              ["Pengirim", "Hubungan", "Ucapan", "Status", "Waktu"],
+              ...rows.map((w) => [
+                w.sender,
+                w.tag,
+                w.message,
+                w.isSpam ? "Spam" : w.status === "tampil" ? "Tampil" : "Disembunyikan",
+                w.createdAt,
+              ]),
+            ]);
+            showToast(`${rows.length} ucapan diekspor ke CSV.`);
           }}
         />
       )}
@@ -499,18 +589,16 @@ export default function ModerasiUcapanPage({ slug }: { slug: string }) {
 
 function ExportDialog({
   count,
+  hiddenCount,
   onClose,
   onExport,
 }: {
   count: number;
+  hiddenCount: number;
   onClose: () => void;
-  onExport: () => void;
+  onExport: (includeHidden: boolean) => void;
 }) {
-  const [format, setFormat] = useState<"xlsx" | "pdf">("xlsx");
-  const opts = [
-    { id: "xlsx" as const, icon: FileSpreadsheet, name: "Excel (.xlsx)", note: "Data tabel lengkap" },
-    { id: "pdf" as const, icon: FileText, name: "Dokumen PDF", note: "Siap dicetak" },
-  ];
+  const [includeHidden, setIncludeHidden] = useState(true);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-900/50 p-4 backdrop-blur-sm">
       <div
@@ -522,7 +610,9 @@ function ExportDialog({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-bold">Ekspor buku ucapan</h2>
-            <p className="text-[13px] text-ink-soft">{count} ucapan akan diunduh.</p>
+            <p className="text-[13px] text-ink-soft">
+              {count} ucapan diunduh sebagai file CSV, bisa dibuka di Excel.
+            </p>
           </div>
           <button
             type="button"
@@ -533,39 +623,15 @@ function ExportDialog({
             <X className="size-4" />
           </button>
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-2.5">
-          {opts.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              aria-pressed={format === o.id}
-              onClick={() => setFormat(o.id)}
-              className={`flex items-center gap-3 rounded-xl border p-3.5 text-left transition ${
-                format === o.id
-                  ? "border-brand-600 bg-brand-50 ring-2 ring-brand-100"
-                  : "border-line hover:border-brand-200"
-              }`}
-            >
-              <o.icon className="size-5 text-brand-600" />
-              <span>
-                <span className="block text-[13px] font-bold">{o.name}</span>
-                <span className="block text-[11px] text-ink-mute">{o.note}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 space-y-2.5">
-          {["Sertakan ucapan yang disembunyikan", "Sertakan label status RSVP tamu"].map((t) => (
-            <label key={t} className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink-soft">
-              <input
-                type="checkbox"
-                defaultChecked
-                className="size-4 rounded border-line accent-brand-600"
-              />
-              {t}
-            </label>
-          ))}
-        </div>
+        <label className="mt-5 flex cursor-pointer items-center gap-2.5 text-[13px] text-ink-soft">
+          <input
+            type="checkbox"
+            checked={includeHidden}
+            onChange={(e) => setIncludeHidden(e.target.checked)}
+            className="size-4 rounded border-line accent-brand-600"
+          />
+          Sertakan ucapan yang disembunyikan ({hiddenCount})
+        </label>
         <div className="mt-5 flex justify-end gap-2.5 border-t border-line pt-5">
           <button
             type="button"
@@ -576,13 +642,115 @@ function ExportDialog({
           </button>
           <button
             type="button"
-            onClick={onExport}
+            onClick={() => onExport(includeHidden)}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-600 px-5 text-[13px] font-bold text-white hover:bg-brand-700"
           >
-            <Download className="size-4" /> Unduh
+            <Download className="size-4" /> Unduh CSV
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AddWishDialog({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (v: { sender: string; message: string; tag: string }) => void;
+}) {
+  const [sender, setSender] = useState("");
+  const [message, setMessage] = useState("");
+  const [tag, setTag] = useState("");
+  const field =
+    "w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none transition placeholder:text-ink-mute focus:border-brand-500 focus:ring-4 focus:ring-brand-100";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-900/50 p-4 backdrop-blur-sm">
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tambah ucapan"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (sender.trim() && message.trim())
+            onAdd({ sender: sender.trim(), message: message.trim(), tag: tag.trim() });
+        }}
+        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold">Tambah ucapan</h2>
+            <p className="text-[13px] text-ink-soft">
+              Catat ucapan yang Anda terima lewat WhatsApp atau pesan lain.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Tutup"
+            onClick={onClose}
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-mute hover:bg-brand-50"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="mt-5 space-y-4">
+          <div>
+            <label htmlFor="w-sender" className="mb-1.5 block text-[13px] font-semibold">
+              Nama pengirim
+            </label>
+            <input
+              id="w-sender"
+              required
+              autoFocus
+              value={sender}
+              onChange={(e) => setSender(e.target.value)}
+              className={`${field} h-11`}
+            />
+          </div>
+          <div>
+            <label htmlFor="w-tag" className="mb-1.5 block text-[13px] font-semibold">
+              Hubungan <span className="font-normal text-ink-mute">(opsional)</span>
+            </label>
+            <input
+              id="w-tag"
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              placeholder="Contoh: Sahabat kuliah"
+              className={`${field} h-11`}
+            />
+          </div>
+          <div>
+            <label htmlFor="w-message" className="mb-1.5 block text-[13px] font-semibold">
+              Ucapan
+            </label>
+            <textarea
+              id="w-message"
+              required
+              rows={4}
+              maxLength={2000}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className={`${field} resize-none py-2.5`}
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2.5 border-t border-line pt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-xl px-4 text-[13px] font-semibold text-ink-soft hover:bg-brand-50"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            className="h-10 rounded-xl bg-brand-600 px-5 text-[13px] font-bold text-white hover:bg-brand-700"
+          >
+            Tambah ucapan
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

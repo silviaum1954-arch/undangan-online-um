@@ -2,8 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Upload, X } from "lucide-react";
-import { EVENT_TITLE } from "./data";
-import { Label, btnGhost, btnPrimary, field } from "./ui";
+import { Label, btnGhost, btnPrimary, field } from "../ui";
 
 function Modal({
   title,
@@ -41,29 +40,68 @@ function Modal({
 
 export function ImageModal({
   onClose,
-  onPick,
+  onUpload,
 }: {
   onClose: () => void;
-  onPick: () => void;
+  onUpload: (file: File) => Promise<boolean>;
 }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function pick(f: File | null) {
+    setError(null);
+    if (f && !["image/png", "image/jpeg", "image/webp"].includes(f.type)) {
+      setFile(null);
+      return setError("Gunakan file JPG, PNG, atau WebP.");
+    }
+    if (f && f.size > 5 * 1024 * 1024) {
+      setFile(null);
+      return setError("Ukuran file maksimal 5 MB.");
+    }
+    setFile(f);
+  }
+
+  async function save() {
+    if (!file) return setError("Pilih gambar terlebih dahulu.");
+    setBusy(true);
+    const ok = await onUpload(file);
+    setBusy(false);
+    if (!ok) setError("Gagal mengunggah. Silakan coba lagi.");
+  }
+
   return (
     <Modal title="Gambar cuplikan tautan" onClose={onClose}>
-      <button
-        type="button"
-        className="flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50 px-6 py-8 text-center transition hover:bg-brand-50"
-      >
+      <label className="flex w-full cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50 px-6 py-8 text-center transition hover:bg-brand-50">
         <Upload className="size-7 text-brand-600" />
-        <span className="mt-2 text-[13px] font-semibold">Pilih gambar baru</span>
+        <span className="mt-2 text-[13px] font-semibold">{file ? file.name : "Pilih gambar baru"}</span>
         <span className="mt-1 text-xs text-ink-mute">
-          Rasio 1.91:1 (1200 × 630 px), JPG atau PNG
+          Rasio 1.91:1 (1200 × 630 px), JPG, PNG, atau WebP, maksimal 5 MB
         </span>
-      </button>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          aria-label="File gambar cuplikan"
+          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+        />
+      </label>
+      {error && (
+        <p role="alert" className="mt-3 text-xs text-rose-600">
+          {error}
+        </p>
+      )}
       <div className="mt-5 flex justify-end gap-2.5 border-t border-line pt-5">
         <button type="button" onClick={onClose} className={btnGhost}>
           Batal
         </button>
-        <button type="button" onClick={onPick} className={btnPrimary}>
-          Gunakan gambar ini
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className={`${btnPrimary} disabled:opacity-70`}
+        >
+          {busy ? "Mengunggah…" : "Gunakan gambar ini"}
         </button>
       </div>
     </Modal>
@@ -71,13 +109,15 @@ export function ImageModal({
 }
 
 export function DuplicateModal({
+  eventTitle,
   onClose,
   onConfirm,
 }: {
+  eventTitle: string;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (name: string) => void;
 }) {
-  const [name, setName] = useState(`${EVENT_TITLE} (salinan)`);
+  const [name, setName] = useState(`${eventTitle} (salinan)`);
   return (
     <Modal title="Duplikat acara" onClose={onClose}>
       <p className="text-[13px] text-ink-soft">
@@ -100,7 +140,7 @@ export function DuplicateModal({
         <button
           type="button"
           disabled={!name.trim()}
-          onClick={onConfirm}
+          onClick={() => onConfirm(name.trim())}
           className={`${btnPrimary} disabled:opacity-50`}
         >
           Mulai duplikasi
